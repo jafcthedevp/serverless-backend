@@ -1,0 +1,35 @@
+{
+  "name": "overshark-backend",
+  "version": "1.0.0",
+  "description": "Sistema de validación automática de pagos Yape - Overshark App",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "handler.js",
+  "scripts": {
+    "build": "tsc",
+    "deploy": "serverless deploy",
+    "test": "jest",
+    "lint": "eslint . --ext .ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.470.0",
+    "@aws-sdk/client-s3": "^3.470.0",
+    "@aws-sdk/client-secrets-manager": "^3.470.0",
+    "@aws-sdk/client-textract": "^3.470.0",
+    "@aws-sdk/lib-dynamodb": "^3.470.0",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.130",
+    "@types/node": "^20.10.5",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "serverless": "^3.38.0",
+    "serverless-offline": "^13.3.0",
+    "serverless-plugin-typescript": "^2.1.5",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,250 @@
+org: jesusflores123
+app: overshark-backend
+service: overshark-backend
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+
+  # Variables de entorno globales
+  environment:
+    STAGE: ${self:provider.stage}
+    DISPOSITIVOS_TABLE: ${self:service}-${self:provider.stage}-dispositivos
+    NOTIFICACIONES_TABLE: ${self:service}-${self:provider.stage}-notificaciones
+    VENTAS_TABLE: ${self:service}-${self:provider.stage}-ventas
+    SESIONES_TABLE: ${self:service}-${self:provider.stage}-sesiones
+    S3_BUCKET: ${self:service}-${self:provider.stage}-vouchers
+    WHATSAPP_PHONE_NUMBER_ID: ${env:WHATSAPP_PHONE_NUMBER_ID}
+    WHATSAPP_ACCESS_TOKEN: ${env:WHATSAPP_ACCESS_TOKEN}
+    WHATSAPP_VERIFY_TOKEN: ${env:WHATSAPP_VERIFY_TOKEN}
+
+  # Permisos IAM
+  iam:
+    role:
+      statements:
+        # DynamoDB
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:DeleteItem
+          Resource:
+            - !GetAtt DispositivosTable.Arn
+            - !GetAtt NotificacionesTable.Arn
+            - !GetAtt VentasTable.Arn
+            - !GetAtt SesionesTable.Arn
+        # S3
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+          Resource:
+            - !Sub '${VouchersBucket.Arn}/*'
+        # Textract
+        - Effect: Allow
+          Action:
+            - textract:DetectDocumentText
+          Resource: '*'
+        # Secrets Manager (opcional)
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: '*'
+
+plugins:
+  - serverless-plugin-typescript
+  - serverless-offline
+
+functions:
+  # Handler 1: Guardar Notificación de Yape
+  guardarNotificacion:
+    handler: src/handlers/guardarNotificacion.handler
+    description: Recibe y guarda notificaciones de Yape desde apps móviles
+    timeout: 30
+    memorySize: 256
+    events:
+      - httpApi:
+          path: /notificaciones
+          method: post
+          cors: true
+
+  # Handler 2: Webhook de WhatsApp
+  webhookWhatsApp:
+    handler: src/handlers/webhookWhatsApp.handler
+    description: Procesa mensajes de WhatsApp Business API
+    timeout: 60
+    memorySize: 512
+    events:
+      - httpApi:
+          path: /webhook
+          method: post
+          cors: true
+      - httpApi:
+          path: /webhook
+          method: get
+          cors: true
+
+  # Handler 3: Validar con Matching (opcional - endpoint independiente)
+  validarConMatch:
+    handler: src/handlers/validarConMatch.handler
+    description: Valida vouchers mediante matching de 5 checks
+    timeout: 30
+    memorySize: 256
+    events:
+      - httpApi:
+          path: /validar
+          method: post
+          cors: true
+
+resources:
+  Resources:
+    # DynamoDB Tables
+
+    # Tabla 1: Dispositivos
+    DispositivosTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DISPOSITIVOS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: PK
+            AttributeType: S
+        KeySchema:
+          - AttributeName: PK
+            KeyType: HASH
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    # Tabla 2: Notificaciones de Yape
+    NotificacionesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.NOTIFICACIONES_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: PK
+            AttributeType: S
+          - AttributeName: SK
+            AttributeType: S
+        KeySchema:
+          - AttributeName: PK
+            KeyType: HASH
+          - AttributeName: SK
+            KeyType: RANGE
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    # Tabla 3: Ventas Validadas
+    VentasTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.VENTAS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: PK
+            AttributeType: S
+          - AttributeName: SK
+            AttributeType: S
+        KeySchema:
+          - AttributeName: PK
+            KeyType: HASH
+          - AttributeName: SK
+            KeyType: RANGE
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    # Tabla 4: Sesiones de Vendedores (con TTL)
+    SesionesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.SESIONES_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: PK
+            AttributeType: S
+        KeySchema:
+          - AttributeName: PK
+            KeyType: HASH
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    # S3 Bucket para Vouchers
+    VouchersBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.S3_BUCKET}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteOldVouchers
+              Status: Enabled
+              ExpirationInDays: 90
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+  Outputs:
+    # API Gateway URLs
+    ApiUrl:
+      Description: URL del API Gateway
+      Value:
+        Fn::Sub: 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+
+    # DynamoDB Tables
+    DispositivosTableName:
+      Description: Nombre de la tabla de Dispositivos
+      Value: !Ref DispositivosTable
+
+    NotificacionesTableName:
+      Description: Nombre de la tabla de Notificaciones
+      Value: !Ref NotificacionesTable
+
+    VentasTableName:
+      Description: Nombre de la tabla de Ventas
+      Value: !Ref VentasTable
+
+    SesionesTableName:
+      Description: Nombre de la tabla de Sesiones
+      Value: !Ref SesionesTable
+
+    # S3 Bucket
+    VouchersBucketName:
+      Description: Nombre del bucket de Vouchers
+      Value: !Ref VouchersBucket
+
+custom:
+  serverless-offline:
+    httpPort: 3000
