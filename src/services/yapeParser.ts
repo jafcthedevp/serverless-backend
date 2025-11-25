@@ -1,4 +1,10 @@
+import { Logger } from '@aws-lambda-powertools/logger';
 import { NotificacionParseada } from '../types/notificacion';
+
+const logger = new Logger({
+  serviceName: 'overshark-backend',
+  logLevel: 'INFO',
+});
 
 export class YapeParser {
   /**
@@ -23,7 +29,10 @@ export class YapeParser {
       const fecha_hora = this.extractFechaHora(texto);
 
       if (!monto || !numero_operacion) {
-        console.error('Falta información crítica en la notificación');
+        logger.warn('Falta información crítica en la notificación', {
+          tiene_monto: !!monto,
+          tiene_numero_operacion: !!numero_operacion,
+        });
         return null;
       }
 
@@ -35,7 +44,9 @@ export class YapeParser {
         fecha_hora: fecha_hora || new Date().toISOString(),
       };
     } catch (error) {
-      console.error('Error parseando notificación:', error);
+      logger.error('Error parseando notificación', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       return null;
     }
   }
@@ -178,7 +189,9 @@ export class YapeParser {
             return fecha.toISOString();
           }
         } catch (error) {
-          console.error('Error parseando fecha:', error);
+          logger.debug('Error parseando fecha', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
         }
       }
     }

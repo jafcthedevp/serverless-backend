@@ -1,8 +1,15 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { Logger } from '@aws-lambda-powertools/logger';
 import { DynamoDBService, TABLES } from '../utils/dynamodb';
 import { YapeParser } from '../services/yapeParser';
 import { NotificacionYape } from '../types/notificacion';
 import { esCodigoValido } from '../config/dispositivos';
+
+// Configurar Logger de Powertools
+const logger = new Logger({
+  serviceName: 'overshark-backend',
+  logLevel: 'INFO',
+});
 
 /**
  * Lambda Handler: Guardar Notificación de Yape
@@ -13,7 +20,10 @@ import { esCodigoValido } from '../config/dispositivos';
 export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
-  console.log('Event:', JSON.stringify(event, null, 2));
+  logger.info('Notificación recibida', {
+    path: event.path,
+    httpMethod: event.requestContext.http.method,
+  });
 
   try {
     // Validar body
@@ -50,7 +60,10 @@ export const handler = async (
     const notificacionParseada = YapeParser.parseNotificacion(payload.texto);
 
     if (!notificacionParseada) {
-      console.error('No se pudo parsear la notificación:', payload.texto);
+      logger.error('No se pudo parsear la notificación', {
+        codigo_dispositivo: payload.codigo_dispositivo,
+        texto_length: payload.texto?.length || 0,
+      });
       return {
         statusCode: 400,
         body: JSON.stringify({
@@ -88,7 +101,12 @@ export const handler = async (
       { ':timestamp': timestamp }
     );
 
-    console.log('Notificación guardada exitosamente:', notificacion);
+    logger.info('Notificación guardada exitosamente', {
+      numero_operacion: notificacion.numero_operacion,
+      monto: notificacion.monto,
+      codigo_dispositivo: notificacion.codigo_dispositivo,
+      estado: notificacion.estado,
+    });
 
     return {
       statusCode: 200,
@@ -100,7 +118,10 @@ export const handler = async (
       }),
     };
   } catch (error) {
-    console.error('Error guardando notificación:', error);
+    logger.error('Error guardando notificación', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return {
       statusCode: 500,
       body: JSON.stringify({
