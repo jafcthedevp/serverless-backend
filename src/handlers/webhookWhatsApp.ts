@@ -28,8 +28,11 @@ export const handler = async (
   console.log('Event:', JSON.stringify(event, null, 2));
 
   try {
+    // Obtener método HTTP (compatible con HTTP API v2 y REST API)
+    const httpMethod = event.httpMethod || event.requestContext?.http?.method || 'UNKNOWN';
+
     // Verificación del webhook (GET request)
-    if (event.httpMethod === 'GET') {
+    if (httpMethod === 'GET') {
       const queryParams = event.queryStringParameters || {};
       const mode = queryParams['hub.mode'];
       const token = queryParams['hub.token'];
@@ -42,11 +45,16 @@ export const handler = async (
           process.env.WHATSAPP_VERIFY_TOKEN!
         )
       ) {
+        console.log('Webhook verificado exitosamente, challenge:', challenge);
         return {
           statusCode: 200,
+          headers: {
+            'Content-Type': 'text/plain',
+          },
           body: challenge || '',
         };
       } else {
+        console.log('Webhook verificación fallida - token inválido');
         return {
           statusCode: 403,
           body: 'Forbidden',
@@ -153,7 +161,7 @@ async function procesarImagen(message: WhatsAppMessage, from: string): Promise<v
     const datosImagen = YapeParser.parseVoucherTextract(texto);
 
     // Validar que se extrajo información crítica
-    if (!datosImagen.numero_operacion || !datosImagen.monto) {
+    if (!datosImagen.numeroOperacion || !datosImagen.monto) {
       await whatsappService.enviarMensaje(from, WhatsAppService.MENSAJES.ERROR_IMAGEN);
       return;
     }
@@ -208,8 +216,8 @@ async function procesarTexto(
       // De la IMAGEN (Textract)
       monto: sesion.datosImagen!.monto!,
       codigoSeguridad: sesion.datosImagen!.codigoSeguridad!,
-      numeroOperacion: sesion.datosImagen!.numero_operacion!,
-      fechaHora: sesion.datosImagen!.fecha_hora!,
+      numeroOperacion: sesion.datosImagen!.numeroOperacion!,
+      fechaHora: sesion.datosImagen!.fechaHora!,
       // Del TEXTO (vendedor)
       nombreCliente,
       codigoServicio,

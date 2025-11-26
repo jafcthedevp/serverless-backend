@@ -202,12 +202,17 @@ export class YapeParser {
   /**
    * Parsea texto extraído de Textract (voucher de imagen)
    */
-  static parseVoucherTextract(textoExtraido: string): Partial<NotificacionParseada> {
+  static parseVoucherTextract(textoExtraido: string): {
+    monto: number;
+    codigoSeguridad: string;
+    numeroOperacion: string;
+    fechaHora: string;
+  } {
     return {
       monto: this.extractMonto(textoExtraido) || 0,
-      codigo_seguridad: this.extractCodigoSeguridad(textoExtraido) || '',
-      numero_operacion: this.extractNumeroOperacion(textoExtraido) || '',
-      fecha_hora: this.extractFechaHora(textoExtraido) || new Date().toISOString(),
+      codigoSeguridad: this.extractCodigoSeguridad(textoExtraido) || '',
+      numeroOperacion: this.extractNumeroOperacion(textoExtraido) || '',
+      fechaHora: this.extractFechaHora(textoExtraido) || new Date().toISOString(),
     };
   }
 }

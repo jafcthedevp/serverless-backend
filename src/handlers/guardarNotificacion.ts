@@ -22,7 +22,7 @@ export const handler = async (
 ): Promise<APIGatewayProxyResult> => {
   logger.info('Notificación recibida', {
     path: event.path,
-    httpMethod: event.requestContext.http.method,
+    httpMethod: event.httpMethod,
   });
 
   try {
