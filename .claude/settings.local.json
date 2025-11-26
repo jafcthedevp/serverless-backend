@@ -13,7 +13,10 @@
       "Bash(aws lambda list-functions:*)",
       "Bash(aws ssm get-parameter:*)",
       "Bash(curl:*)",
-      "Bash(aws logs tail:*)"
+      "Bash(aws logs tail:*)",
+      "WebFetch(domain:developers.facebook.com)",
+      "Bash(aws lambda get-function-configuration:*)",
+      "Bash(aws s3 ls:*)"
     ],
     "deny": [],
     "ask": []

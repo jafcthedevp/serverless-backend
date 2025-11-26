@@ -754,7 +754,6 @@ function extractDigitos(texto) {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 11:35:52 - Lambda hace matching:
-           ✓ Operación: 03443217 == 03443217 (de IMAGEN)
            ✓ Código: TK6-600 == TK6-600 (de TEXTO vs notificación)
            ✓ Monto: 100.00 === 100.00 (de IMAGEN)
            ✓ Nombre: "Juan C. Perez F." ≈ "Juan Carlos Perez..." (98%)
@@ -833,7 +832,6 @@ Interacciones del vendedor: 2 mensajes (1 imagen + 1 texto)
            "❌ Este pago ya fue validado
 
             Operación: 03443217
-            Validado por: +51957614218
             Fecha: 22/11/2025 11:35"
 ```
 

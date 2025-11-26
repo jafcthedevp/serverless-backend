@@ -13,6 +13,20 @@ const whatsappService = new WhatsAppService(
   process.env.WHATSAPP_ACCESS_TOKEN!
 );
 
+// Whitelist de vendedores autorizados
+// Números en formato internacional sin '+' (ej: 51957614218)
+const VENDEDORES_AUTORIZADOS = [
+  '51957614218', // Juan Vendedor - Lima
+  // Agregar más vendedores aquí
+];
+
+/**
+ * Verifica si un número de WhatsApp está autorizado
+ */
+function esVendedorAutorizado(numero: string): boolean {
+  return VENDEDORES_AUTORIZADOS.includes(numero);
+}
+
 /**
  * Lambda Handler: Webhook de WhatsApp
  *
@@ -29,14 +43,22 @@ export const handler = async (
 
   try {
     // Obtener método HTTP (compatible con HTTP API v2 y REST API)
-    const httpMethod = event.httpMethod || event.requestContext?.http?.method || 'UNKNOWN';
+    const httpMethod = event.httpMethod || (event.requestContext as any)?.http?.method || 'UNKNOWN';
 
     // Verificación del webhook (GET request)
     if (httpMethod === 'GET') {
       const queryParams = event.queryStringParameters || {};
       const mode = queryParams['hub.mode'];
-      const token = queryParams['hub.token'];
+      const token = queryParams['hub.verify_token'];
       const challenge = queryParams['hub.challenge'];
+
+      console.log('Webhook verification request:', {
+        mode,
+        token: token ? `${token.substring(0, 10)}...` : 'undefined',
+        challenge,
+        expectedToken: process.env.WHATSAPP_VERIFY_TOKEN ?
+          `${process.env.WHATSAPP_VERIFY_TOKEN.substring(0, 10)}...` : 'undefined'
+      });
 
       if (
         WhatsAppService.verificarWebhook(
@@ -45,7 +67,7 @@ export const handler = async (
           process.env.WHATSAPP_VERIFY_TOKEN!
         )
       ) {
-        console.log('Webhook verificado exitosamente, challenge:', challenge);
+        console.log('✅ Webhook verificado exitosamente, devolviendo challenge:', challenge);
         return {
           statusCode: 200,
           headers: {
@@ -54,7 +76,10 @@ export const handler = async (
           body: challenge || '',
         };
       } else {
-        console.log('Webhook verificación fallida - token inválido');
+        console.log('❌ Webhook verificación fallida:', {
+          modeMatch: mode === 'subscribe',
+          tokenMatch: token === process.env.WHATSAPP_VERIFY_TOKEN
+        });
         return {
           statusCode: 403,
           body: 'Forbidden',
@@ -108,6 +133,18 @@ async function procesarMensaje(message: WhatsAppMessage): Promise<void> {
   const from = message.from;
 
   try {
+    // 🔐 VERIFICAR WHITELIST
+    if (!esVendedorAutorizado(from)) {
+      console.log(`🚫 Acceso denegado para número no autorizado: ${from}`);
+      await whatsappService.enviarMensaje(
+        from,
+        '🚫 *Acceso No Autorizado*\n\n' +
+        'Tu número no está registrado como vendedor autorizado.\n\n' +
+        'Para solicitar acceso, contacta al administrador.'
+      );
+      return; // Detener procesamiento
+    }
+
     // Obtener sesión del vendedor
     let sesion = await DynamoDBService.get(TABLES.SESIONES, {
       PK: `SESION#${from}`,
