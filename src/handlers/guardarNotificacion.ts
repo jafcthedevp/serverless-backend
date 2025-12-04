@@ -2,6 +2,8 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { Logger } from '@aws-lambda-powertools/logger';
 import { DynamoDBService, TABLES } from '../utils/dynamodb';
 import { YapeParser } from '../services/yapeParser';
+import { MultiPagoParser } from '../services/multiPagoParser';
+import { PagoDetector } from '../services/pagoDetector';
 import { NotificacionYape } from '../types/notificacion';
 import { esCodigoValido } from '../config/dispositivos';
 
@@ -56,37 +58,57 @@ export const handler = async (
       };
     }
 
-    // Parsear notificación de Yape
-    const notificacionParseada = YapeParser.parseNotificacion(payload.texto);
+    // Detectar tipo de pago
+    const tipoPago = PagoDetector.detectarTipoPago(payload.texto);
+    logger.info('Tipo de pago detectado', { tipoPago });
 
-    if (!notificacionParseada) {
-      logger.error('No se pudo parsear la notificación', {
-        codigo_dispositivo: payload.codigo_dispositivo,
-        texto_length: payload.texto?.length || 0,
-      });
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          error: 'No se pudo extraer información de la notificación',
-        }),
-      };
+    // Intentar parsear según el tipo de pago
+    let notificacionParseada = null;
+
+    switch (tipoPago) {
+      case 'YAPE':
+        notificacionParseada = YapeParser.parseNotificacion(payload.texto);
+        break;
+      case 'PLIN':
+        notificacionParseada = MultiPagoParser.parsePlin(payload.texto);
+        break;
+      case 'BCP':
+        notificacionParseada = MultiPagoParser.parseBCP(payload.texto);
+        break;
+      case 'INTERBANK':
+        notificacionParseada = MultiPagoParser.parseInterbank(payload.texto);
+        break;
+      default:
+        // Para OTRO o IMAGEN_MANUAL, no intentamos parsear
+        notificacionParseada = null;
+        break;
     }
 
     // Crear timestamp
     const timestamp = new Date().toISOString();
 
+    // Determinar estado inicial
+    const requiereRevisionManual = PagoDetector.requiereRevisionManual(tipoPago);
+    const estadoInicial = requiereRevisionManual ? 'REVISION_MANUAL' : 'PENDIENTE_VALIDACION';
+
+    // Si no se pudo parsear, generar un ID temporal basado en timestamp
+    const numeroOperacion = notificacionParseada?.numero_operacion ||
+                           `TEMP-${Date.now()}-${payload.codigo_dispositivo}`;
+
     // Crear registro para DynamoDB
     const notificacion: NotificacionYape = {
-      PK: `NOTIF#${notificacionParseada.numero_operacion}`,
+      PK: `NOTIF#${numeroOperacion}`,
       SK: timestamp,
-      monto: notificacionParseada.monto,
-      nombre_pagador: notificacionParseada.nombre_pagador,
-      codigo_seguridad: notificacionParseada.codigo_seguridad,
-      numero_operacion: notificacionParseada.numero_operacion,
-      fecha_hora: notificacionParseada.fecha_hora,
+      tipo_pago: tipoPago,
+      texto_raw: payload.texto,
+      monto: notificacionParseada?.monto,
+      nombre_pagador: notificacionParseada?.nombre_pagador,
+      codigo_seguridad: notificacionParseada?.codigo_seguridad,
+      numero_operacion: notificacionParseada?.numero_operacion,
+      fecha_hora: notificacionParseada?.fecha_hora,
       codigo_dispositivo: payload.codigo_dispositivo,
-      estado: 'PENDIENTE_VALIDACION',
-      parseado: true,
+      estado: estadoInicial,
+      parseado: !!notificacionParseada,
       created_at: timestamp,
     };
 
@@ -104,17 +126,24 @@ export const handler = async (
     logger.info('Notificación guardada exitosamente', {
       numero_operacion: notificacion.numero_operacion,
       monto: notificacion.monto,
+      tipo_pago: notificacion.tipo_pago,
       codigo_dispositivo: notificacion.codigo_dispositivo,
       estado: notificacion.estado,
+      requiere_revision_manual: requiereRevisionManual,
     });
 
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: 'Notificación guardada exitosamente',
-        numero_operacion: notificacionParseada.numero_operacion,
-        monto: notificacionParseada.monto,
+        message: requiereRevisionManual
+          ? 'Notificación guardada - Requiere revisión manual'
+          : 'Notificación guardada exitosamente',
+        numero_operacion: numeroOperacion,
+        tipo_pago: tipoPago,
+        monto: notificacionParseada?.monto,
         codigo_dispositivo: payload.codigo_dispositivo,
+        estado: estadoInicial,
+        requiere_revision_manual: requiereRevisionManual,
       }),
     };
   } catch (error) {

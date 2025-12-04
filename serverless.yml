@@ -8,6 +8,16 @@ provider:
   region: us-east-1
   stage: ${opt:stage, 'dev'}
 
+  # Configuración de HTTP API con autorización
+  httpApi:
+    authorizers:
+      cognitoAuthorizer:
+        type: jwt
+        identitySource: $request.header.Authorization
+        issuerUrl: https://cognito-idp.${self:provider.region}.amazonaws.com/${ssm:overshark-backend-${self:provider.stage}-COGNITO_USER_POOL_ID}
+        audience:
+          - ${ssm:overshark-backend-${self:provider.stage}-COGNITO_CLIENT_ID}
+
   # Variables de entorno globales
   environment:
     STAGE: ${self:provider.stage}
@@ -109,6 +119,32 @@ functions:
           path: /validar
           method: post
           cors: true
+
+  # Handler 4: Listar Notificaciones Pendientes de Revisión Manual
+  listarPendientes:
+    handler: src/handlers/listarPendientes.handler
+    description: Lista notificaciones que requieren revisión manual
+    timeout: 30
+    memorySize: 256
+    events:
+      - httpApi:
+          path: /dashboard/pendientes
+          method: get
+          authorizer:
+            name: cognitoAuthorizer
+
+  # Handler 5: Validar Notificación Manualmente (Aprobar/Rechazar)
+  validarManual:
+    handler: src/handlers/validarManual.handler
+    description: Permite aprobar o rechazar notificaciones manualmente
+    timeout: 30
+    memorySize: 256
+    events:
+      - httpApi:
+          path: /dashboard/validar
+          method: post
+          authorizer:
+            name: cognitoAuthorizer
 
 resources:
   Resources:

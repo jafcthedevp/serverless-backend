@@ -6,10 +6,18 @@ import {
   UpdateCommand,
   QueryCommand,
   DeleteCommand,
+  ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 
-const client = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(client);
+// Configurar cliente de DynamoDB
+const client = new DynamoDBClient({
+  region: process.env.AWS_REGION || 'us-east-1',
+});
+const docClient = DynamoDBDocumentClient.from(client, {
+  marshallOptions: {
+    removeUndefinedValues: true,
+  },
+});
 
 export class DynamoDBService {
   /**
@@ -90,6 +98,30 @@ export class DynamoDBService {
     });
 
     await docClient.send(command);
+  }
+
+  /**
+   * Escanea la tabla completa con filtros opcionales
+   */
+  static async scan(
+    tableName: string,
+    options?: {
+      FilterExpression?: string;
+      ExpressionAttributeValues?: any;
+      ExpressionAttributeNames?: any;
+      Limit?: number;
+    }
+  ): Promise<any[]> {
+    const command = new ScanCommand({
+      TableName: tableName,
+      FilterExpression: options?.FilterExpression,
+      ExpressionAttributeValues: options?.ExpressionAttributeValues,
+      ExpressionAttributeNames: options?.ExpressionAttributeNames,
+      Limit: options?.Limit,
+    });
+
+    const result = await docClient.send(command);
+    return result.Items || [];
   }
 
   /**

@@ -19,6 +19,15 @@ export class MatchingService {
     voucher: VoucherDatos,
     notificacion: NotificacionYape
   ): ResultadoValidacion {
+    // Validar que la notificación tenga los datos requeridos
+    if (!notificacion.numero_operacion || !notificacion.monto || !notificacion.nombre_pagador || !notificacion.codigo_seguridad) {
+      return {
+        valido: false,
+        razon: 'NOTIFICACION_INCOMPLETA',
+        mensaje: 'La notificación no tiene todos los datos requeridos para validación automática',
+      };
+    }
+
     // Check 2: VALIDACIÓN CRÍTICA - Código de dispositivo debe coincidir
     if (notificacion.codigo_dispositivo !== voucher.codigoServicio) {
       return {
@@ -103,7 +112,7 @@ ${voucher.telefonoCliente ? `• Teléfono: ${voucher.telefonoCliente}\n` : ''}$
 • Monto: S/${voucher.monto.toFixed(2)}
 • Operación: ${voucher.numeroOperacion}
 • Código Seguridad: ${voucher.codigoSeguridad}
-• Fecha: ${new Date(notificacion.fecha_hora).toLocaleString('es-PE')}`;
+• Fecha: ${notificacion.fecha_hora ? new Date(notificacion.fecha_hora).toLocaleString('es-PE') : 'N/A'}`;
   }
 
   /**
@@ -118,13 +127,13 @@ ${voucher.telefonoCliente ? `• Teléfono: ${voucher.telefonoCliente}\n` : ''}$
 
     if (!checks.monto) {
       noCoincidentes.push(
-        `• Monto: Notificación S/${notificacion.monto.toFixed(2)} ≠ Voucher S/${voucher.monto.toFixed(2)}`
+        `• Monto: Notificación S/${notificacion.monto?.toFixed(2)} ≠ Voucher S/${voucher.monto.toFixed(2)}`
       );
     }
 
     if (!checks.nombre) {
       const similitud = SimilitudService.calcularSimilitud(
-        notificacion.nombre_pagador,
+        notificacion.nombre_pagador || '',
         voucher.nombreCliente
       );
       noCoincidentes.push(
