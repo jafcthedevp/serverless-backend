@@ -25,6 +25,7 @@ provider:
     NOTIFICACIONES_TABLE: ${self:service}-${self:provider.stage}-notificaciones
     VENTAS_TABLE: ${self:service}-${self:provider.stage}-ventas
     SESIONES_TABLE: ${self:service}-${self:provider.stage}-sesiones
+    VENDEDORES_TABLE: ${self:service}-${self:provider.stage}-vendedores
     S3_BUCKET: ${self:service}-${self:provider.stage}-vouchers
     WHATSAPP_PHONE_NUMBER_ID: ${ssm:overshark-backend-${self:provider.stage}-WHATSAPP_PHONE_NUMBER_ID}
     WHATSAPP_ACCESS_TOKEN: ${ssm:overshark-backend-${self:provider.stage}-WHATSAPP_ACCESS_TOKEN}
@@ -48,6 +49,7 @@ provider:
             - !GetAtt NotificacionesTable.Arn
             - !GetAtt VentasTable.Arn
             - !GetAtt SesionesTable.Arn
+            - !GetAtt VendedoresTable.Arn
         # S3
         - Effect: Allow
           Action:
@@ -146,6 +148,32 @@ functions:
           authorizer:
             name: cognitoAuthorizer
 
+  # Handler 6: Listar Vendedores
+  listarVendedores:
+    handler: src/handlers/gestionarVendedores.listarHandler
+    description: Lista vendedores registrados (con filtro opcional por estado)
+    timeout: 30
+    memorySize: 256
+    events:
+      - httpApi:
+          path: /dashboard/vendedores
+          method: get
+          authorizer:
+            name: cognitoAuthorizer
+
+  # Handler 7: Aprobar/Rechazar Vendedor
+  aprobarVendedor:
+    handler: src/handlers/gestionarVendedores.aprobarHandler
+    description: Aprobar, rechazar o bloquear vendedores
+    timeout: 30
+    memorySize: 256
+    events:
+      - httpApi:
+          path: /dashboard/vendedores/aprobar
+          method: post
+          authorizer:
+            name: cognitoAuthorizer
+
 resources:
   Resources:
     # DynamoDB Tables
@@ -233,6 +261,35 @@ resources:
         TimeToLiveSpecification:
           AttributeName: ttl
           Enabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    # Tabla 5: Vendedores Registrados
+    VendedoresTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.VENDEDORES_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: PK
+            AttributeType: S
+          - AttributeName: estado
+            AttributeType: S
+        KeySchema:
+          - AttributeName: PK
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: EstadoIndex
+            KeySchema:
+              - AttributeName: estado
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
         Tags:
           - Key: Environment
             Value: ${self:provider.stage}

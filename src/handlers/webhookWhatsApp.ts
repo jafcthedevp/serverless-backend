@@ -7,25 +7,12 @@ import { S3Service, S3_BUCKET } from '../utils/s3';
 import { TextractService } from '../utils/textract';
 import { YapeParser } from '../services/yapeParser';
 import { VoucherDatos } from '../types/venta';
+import { VendedorService } from '../services/vendedorService';
 
 const whatsappService = new WhatsAppService(
   process.env.WHATSAPP_PHONE_NUMBER_ID!,
   process.env.WHATSAPP_ACCESS_TOKEN!
 );
-
-// Whitelist de vendedores autorizados
-// Números en formato internacional sin '+' (ej: 51957614218)
-const VENDEDORES_AUTORIZADOS = [
-  '51957614218', // Juan Vendedor - Lima
-  // Agregar más vendedores aquí
-];
-
-/**
- * Verifica si un número de WhatsApp está autorizado
- */
-function esVendedorAutorizado(numero: string): boolean {
-  return VENDEDORES_AUTORIZADOS.includes(numero);
-}
 
 /**
  * Lambda Handler: Webhook de WhatsApp
@@ -97,15 +84,53 @@ export const handler = async (
 
     const webhook: WhatsAppWebhook = JSON.parse(event.body);
 
-    // Procesar cada mensaje
+    console.log('📦 Webhook recibido:', JSON.stringify(webhook, null, 2));
+
+    // Procesar cada entrada
     for (const entry of webhook.entry) {
       for (const change of entry.changes) {
-        const messages = change.value.messages;
+        const { value, field } = change;
 
-        if (messages && messages.length > 0) {
-          for (const message of messages) {
+        console.log(`📋 Campo del webhook: ${field}`);
+        console.log(`📋 Contenido del value:`, JSON.stringify(value, null, 2));
+
+        // 1. MENSAJES ENTRANTES de usuarios
+        if (value.messages && value.messages.length > 0) {
+          console.log(`✅ Recibidos ${value.messages.length} mensaje(s) ENTRANTE(s) de usuario(s)`);
+
+          for (const message of value.messages) {
+            const contactInfo = value.contacts?.find(c => c.wa_id === message.from);
+            const contactName = contactInfo?.profile?.name || 'Desconocido';
+
+            console.log(`📨 Mensaje de: ${contactName} (${message.from}), tipo: ${message.type}`);
             await procesarMensaje(message);
           }
+        }
+
+        // 2. ESTADOS de mensajes SALIENTES (enviados por el bot)
+        if (value.statuses && value.statuses.length > 0) {
+          console.log(`📊 Recibidos ${value.statuses.length} estado(s) de mensaje(s) SALIENTE(s)`);
+
+          for (const status of value.statuses) {
+            console.log(`📤 Estado de mensaje saliente:`, {
+              id: status.id,
+              recipient: status.recipient_id,
+              status: status.status,
+              timestamp: status.timestamp,
+              errors: status.errors
+            });
+
+            // Logear errores si los hay
+            if (status.errors && status.errors.length > 0) {
+              console.error(`❌ Error en mensaje saliente a ${status.recipient_id}:`, status.errors);
+            }
+          }
+        }
+
+        // 3. Si no hay ni mensajes ni estados
+        if (!value.messages && !value.statuses) {
+          console.log(`⚠️  Webhook sin mensajes ni estados. Tipo de campo: ${field}`);
+          console.log(`   Esto puede ser normal para otros tipos de eventos.`);
         }
       }
     }
@@ -133,17 +158,47 @@ async function procesarMensaje(message: WhatsAppMessage): Promise<void> {
   const from = message.from;
 
   try {
-    // 🔐 VERIFICAR WHITELIST
-    if (!esVendedorAutorizado(from)) {
-      console.log(`🚫 Acceso denegado para número no autorizado: ${from}`);
+    // 🔐 VERIFICAR VENDEDOR EN BASE DE DATOS
+    let vendedor = await VendedorService.obtenerVendedor(from);
+
+    // Si no existe, auto-registrar con estado PENDIENTE
+    if (!vendedor) {
+      console.log(`📝 Auto-registrando nuevo vendedor: ${from}`);
+      vendedor = await VendedorService.registrarVendedor(from, message.text?.body);
+
+      // Enviar mensaje de bienvenida y espera
       await whatsappService.enviarMensaje(
         from,
-        '🚫 *Acceso No Autorizado*\n\n' +
-        'Tu número no está registrado como vendedor autorizado.\n\n' +
-        'Para solicitar acceso, contacta al administrador.'
+        '👋 *Bienvenido a Overshark Backend*\n\n' +
+        '📝 Tu número ha sido registrado automáticamente.\n\n' +
+        '⏳ Tu solicitud está siendo revisada por un administrador.\n' +
+        'Recibirás una notificación cuando seas aprobado.\n\n' +
+        'Mientras tanto, puedes contactar al administrador si tienes preguntas.'
+      );
+
+      // TODO: Notificar a administradores sobre nuevo vendedor pendiente
+      console.log('⚠️ Notificar admin: Nuevo vendedor pendiente de aprobación', {
+        telefono: from,
+        primer_mensaje: message.text?.body,
+      });
+
+      return; // No procesar más hasta que sea aprobado
+    }
+
+    // Verificar si puede usar el sistema
+    const permisoCheck = VendedorService.puedeUsarSistema(vendedor);
+
+    if (!permisoCheck.permitido) {
+      console.log(`🚫 Acceso denegado para vendedor: ${from}, razón: ${permisoCheck.razon}`);
+      await whatsappService.enviarMensaje(
+        from,
+        `🚫 *Acceso Denegado*\n\n${permisoCheck.razon}`
       );
       return; // Detener procesamiento
     }
+
+    // Vendedor APROBADO - actualizar última actividad
+    await VendedorService.actualizarActividad(from);
 
     // Obtener sesión del vendedor
     let sesion = await DynamoDBService.get(TABLES.SESIONES, {

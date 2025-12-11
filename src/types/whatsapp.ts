@@ -17,6 +17,7 @@ export interface WhatsAppChange {
     };
     contacts?: WhatsAppContact[];
     messages?: WhatsAppMessage[];
+    statuses?: WhatsAppMessageStatus[];
   };
   field: string;
 }
@@ -40,6 +41,23 @@ export interface WhatsAppMessage {
     id: string;
     mime_type: string;
     sha256: string;
+  };
+}
+
+export interface WhatsAppMessageStatus {
+  id: string;
+  status: 'sent' | 'delivered' | 'read' | 'failed';
+  timestamp: string;
+  recipient_id: string;
+  errors?: WhatsAppError[];
+}
+
+export interface WhatsAppError {
+  code: number;
+  title: string;
+  message: string;
+  error_data?: {
+    details: string;
   };
 }
 

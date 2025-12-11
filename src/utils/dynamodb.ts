@@ -141,4 +141,5 @@ export const TABLES = {
   NOTIFICACIONES: process.env.NOTIFICACIONES_TABLE || 'notificaciones_yape',
   VENTAS: process.env.VENTAS_TABLE || 'ventas_validadas',
   SESIONES: process.env.SESIONES_TABLE || 'sesiones_vendedores',
+  VENDEDORES: process.env.VENDEDORES_TABLE || 'vendedores',
 };

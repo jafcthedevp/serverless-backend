@@ -5,6 +5,11 @@
  * Uso: npx ts-node scripts/init-dispositivos.ts
  */
 
+import * as dotenv from 'dotenv';
+
+// Cargar variables de entorno desde .env
+dotenv.config();
+
 import { DynamoDBService, TABLES } from '../src/utils/dynamodb';
 import { DISPOSITIVOS_CONFIG } from '../src/config/dispositivos';
 import { Dispositivo } from '../src/types/dispositivo';

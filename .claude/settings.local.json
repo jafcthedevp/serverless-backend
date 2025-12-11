@@ -19,7 +19,18 @@
       "Bash(aws s3 ls:*)",
       "Bash(aws ssm get-parameters:*)",
       "Bash(aws dynamodb list-tables:*)",
-      "Bash(aws apigatewayv2 get-apis:*)"
+      "Bash(aws apigatewayv2 get-apis:*)",
+      "Bash(serverless --help:*)",
+      "Bash(serverless info)",
+      "Bash(aws ssm describe-parameters:*)",
+      "Bash(aws cognito-idp create-user-pool:*)",
+      "Bash(aws dynamodb scan:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(aws dynamodb get-item:*)",
+      "Bash(node scripts/enviar-mensaje-whatsapp.js:*)",
+      "Bash(aws logs describe-log-streams:*)",
+      "Bash(MSYS_NO_PATHCONV=1 aws logs tail:*)",
+      "Bash(MSYS_NO_PATHCONV=1 aws ssm get-parameters:*)"
     ],
     "deny": [],
     "ask": []
