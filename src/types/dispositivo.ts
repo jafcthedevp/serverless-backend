@@ -28,5 +28,5 @@ export interface SesionVendedor {
 
   // Control
   created_at: string;
-  ttl: number; // Expira en 30 minutos
+  ttl: number; // Expira en 10 minutos
 }

@@ -97,12 +97,35 @@ export const handler = async (
         // 1. MENSAJES ENTRANTES de usuarios
         if (value.messages && value.messages.length > 0) {
           console.log(`✅ Recibidos ${value.messages.length} mensaje(s) ENTRANTE(s) de usuario(s)`);
+          console.log(`📍 Metadata del webhook:`, {
+            phone_number_id: value.metadata?.phone_number_id,
+            display_phone_number: value.metadata?.display_phone_number,
+          });
 
           for (const message of value.messages) {
             const contactInfo = value.contacts?.find(c => c.wa_id === message.from);
             const contactName = contactInfo?.profile?.name || 'Desconocido';
 
-            console.log(`📨 Mensaje de: ${contactName} (${message.from}), tipo: ${message.type}`);
+            // Calcular edad del mensaje
+            const messageTimestamp = parseInt(message.timestamp) * 1000; // Convertir a ms
+            const messageAge = Date.now() - messageTimestamp;
+            const messageAgeMinutes = Math.floor(messageAge / 60000);
+
+            console.log(`📨 Mensaje ENTRANTE:`, {
+              from: message.from,
+              contactName,
+              type: message.type,
+              messageId: message.id,
+              timestamp: message.timestamp,
+              ageMinutes: messageAgeMinutes,
+            });
+
+            // Ignorar mensajes muy antiguos (>10 minutos) para evitar reprocesamiento
+            if (messageAgeMinutes > 10) {
+              console.log(`⚠️ Mensaje ignorado: demasiado antiguo (${messageAgeMinutes} minutos)`);
+              continue;
+            }
+
             await procesarMensaje(message);
           }
         }
@@ -216,6 +239,16 @@ async function procesarMensaje(message: WhatsAppMessage): Promise<void> {
         // Mensaje de ayuda
         await whatsappService.enviarMensaje(from, WhatsAppService.MENSAJES.BIENVENIDA);
       }
+    } else {
+      // Tipos de mensajes no soportados (sticker, video, audio, document, etc.)
+      console.log(`⚠️ Tipo de mensaje no soportado: ${message.type} de ${from}`);
+      await whatsappService.enviarMensaje(
+        from,
+        '⚠️ Solo puedo procesar imágenes y mensajes de texto.\n\n' +
+        'Para validar un voucher:\n' +
+        '1️⃣ Envía la imagen del voucher\n' +
+        '2️⃣ Envía los datos del cliente'
+      );
     }
   } catch (error) {
     console.error('Error procesando mensaje:', error);
@@ -253,14 +286,19 @@ async function procesarImagen(message: WhatsAppMessage, from: string): Promise<v
     const datosImagen = YapeParser.parseVoucherTextract(texto);
 
     // Validar que se extrajo información crítica
-    if (!datosImagen.numeroOperacion || !datosImagen.monto) {
+    if (!datosImagen.numeroOperacion || !datosImagen.monto || !datosImagen.codigoSeguridad) {
+      console.log('Faltan datos críticos en la imagen:', {
+        tieneNumeroOperacion: !!datosImagen.numeroOperacion,
+        tieneMonto: !!datosImagen.monto,
+        tieneCodigoSeguridad: !!datosImagen.codigoSeguridad,
+      });
       await whatsappService.enviarMensaje(from, WhatsAppService.MENSAJES.ERROR_IMAGEN);
       return;
     }
 
-    // Crear sesión temporal (TTL 30 minutos)
+    // Crear sesión temporal (TTL 10 minutos)
     const timestamp = new Date().toISOString();
-    const ttl = Math.floor(Date.now() / 1000) + 30 * 60; // 30 minutos
+    const ttl = Math.floor(Date.now() / 1000) + 10 * 60; // 10 minutos
 
     const sesion: SesionVendedor = {
       PK: `SESION#${from}`,

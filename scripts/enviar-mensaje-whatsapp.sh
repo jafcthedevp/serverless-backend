@@ -4,7 +4,7 @@
 # Uso: ./scripts/enviar-mensaje-whatsapp.sh [numero_destino]
 
 PHONE_NUMBER_ID="808365405703506"
-ACCESS_TOKEN="EAAU32RdwUpoBQAn8i2r04jD5CXCPbjMHP391IHRxGxMB05KGVS20fDy16qDZBhObqdzbZAD1rKfvCrFlgJ9YLWZCCazss8TZCObbHufXKYtSCAZA6hgreEzhiWp4ZCFwrluxG3Svz3ZCVAFND9NZBiSiSlkwB5E4034uPSeKEYz9QpH8TVVZBwt95vRrF0fCuLDctnAZDZD"
+ACCESS_TOKEN="EAAT0ngu7fqsBQDXovclsbY5KLvEYSmnA7qFjw4sMxH788fkZB2QnIPjpxZATAfZAUK6fU2erxo5hiV4yVzotXWAdSknwXPxEgAuUYVTa7JyRxKubZAZA5zA2BrboxbG5IYYbL2i4JeMYDBst8BFoa6xI5jtE3kgeuYh553ZBA3tHQoGjfUqRuZBewr2VBEZAS5dcrwZDZD"
 NUMERO_DESTINO="${1:-51930193795}"  # Default: vendedor de prueba
 
 echo "📱 Enviando mensaje de prueba de WhatsApp..."

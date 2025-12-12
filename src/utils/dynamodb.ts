@@ -89,6 +89,30 @@ export class DynamoDBService {
   }
 
   /**
+   * Query items usando un Global Secondary Index (GSI)
+   */
+  static async queryIndex(
+    tableName: string,
+    indexName: string,
+    keyConditionExpression: string,
+    expressionAttributeValues: any,
+    expressionAttributeNames?: any,
+    filterExpression?: string
+  ): Promise<any[]> {
+    const command = new QueryCommand({
+      TableName: tableName,
+      IndexName: indexName,
+      KeyConditionExpression: keyConditionExpression,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ExpressionAttributeNames: expressionAttributeNames,
+      FilterExpression: filterExpression,
+    });
+
+    const result = await docClient.send(command);
+    return result.Items || [];
+  }
+
+  /**
    * Elimina un item de DynamoDB
    */
   static async delete(tableName: string, key: any): Promise<void> {

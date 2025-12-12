@@ -9,21 +9,67 @@ import { MatchingService } from '../services/matching';
  */
 export async function validarVoucher(voucher: VoucherDatos): Promise<ResultadoValidacion> {
   try {
-    // 1. Buscar notificación por número de operación
-    const notificacion = await DynamoDBService.get(TABLES.NOTIFICACIONES, {
-      PK: `NOTIF#${voucher.numeroOperacion}`,
-    }) as NotificacionYape | undefined;
+    // 1. Buscar notificación por código dispositivo + código seguridad
+    const notificacionesCandidatas = await DynamoDBService.queryIndex(
+      TABLES.NOTIFICACIONES,
+      'DispositivoCodigoIndex',
+      'codigo_dispositivo = :dispositivo AND codigo_seguridad = :codigo',
+      {
+        ':dispositivo': voucher.codigoServicio,
+        ':codigo': voucher.codigoSeguridad,
+      }
+    ) as NotificacionYape[];
+
+    console.log(`Encontradas ${notificacionesCandidatas.length} notificaciones con dispositivo=${voucher.codigoServicio} y código=${voucher.codigoSeguridad}`);
+
+    // 2. Filtrar en memoria por nombre EXACTO, monto EXACTO y estado PENDIENTE
+    const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const notificacion = notificacionesCandidatas.find(n =>
+      n.nombre_pagador === voucher.nombreCliente &&  // Nombre EXACTO
+      n.monto === voucher.monto &&                    // Monto EXACTO
+      n.estado === 'PENDIENTE_VALIDACION' &&          // Solo pendientes
+      n.created_at > hace24h                          // Últimas 24 horas
+    );
 
     if (!notificacion) {
+      // Buscar si hay notificaciones similares para dar mejor feedback
+      const notifConMonto = notificacionesCandidatas.find(n => n.monto === voucher.monto);
+      const notifConNombre = notificacionesCandidatas.find(n => n.nombre_pagador === voucher.nombreCliente);
+
+      let mensajeDetalle = '⚠️ No encontramos un pago que coincida exactamente.\n\n';
+
+      if (notifConMonto && !notifConNombre) {
+        mensajeDetalle += `✅ Encontramos un pago de S/${voucher.monto}\n` +
+          `❌ Pero el nombre no coincide exactamente\n\n` +
+          `En el sistema: "${notifConMonto.nombre_pagador}"\n` +
+          `Tú enviaste: "${voucher.nombreCliente}"\n\n` +
+          `💡 Copia el nombre EXACTAMENTE como aparece en Yape (con espacios, mayúsculas, puntos, etc.)`;
+      } else if (notifConNombre && !notifConMonto) {
+        mensajeDetalle += `✅ Encontramos un pago de "${voucher.nombreCliente}"\n` +
+          `❌ Pero el monto no coincide\n\n` +
+          `En el sistema: S/${notifConNombre.monto}\n` +
+          `Tú enviaste: S/${voucher.monto}`;
+      } else if (notificacionesCandidatas.length > 0) {
+        mensajeDetalle += `Encontramos ${notificacionesCandidatas.length} pago(s) con el mismo código de seguridad,\n` +
+          `pero ninguno coincide en nombre Y monto.\n\n` +
+          `Verifica:\n` +
+          `• El nombre sea EXACTAMENTE igual a Yape\n` +
+          `• El monto sea correcto\n` +
+          `• Que sea un pago de las últimas 24 horas`;
+      } else {
+        mensajeDetalle = '⚠️ No encontramos el pago en nuestro sistema.\n\n' +
+          'Verifica:\n' +
+          `• El código del servicio (${voucher.codigoServicio})\n` +
+          `• El código de seguridad (${voucher.codigoSeguridad})\n` +
+          '• Que el pago se haya realizado a uno de nuestros números\n' +
+          '• Que hayan pasado al menos 30 segundos desde el pago';
+      }
+
       return {
         valido: false,
         razon: 'NO_EXISTE_NOTIFICACION',
-        mensaje:
-          '⚠️ No encontramos el pago en nuestro sistema.\n\n' +
-          'Verifica:\n' +
-          '• El número de operación sea correcto\n' +
-          '• Que el pago se haya realizado a uno de nuestros números\n' +
-          '• Que hayan pasado al menos 30 segundos desde el pago',
+        mensaje: mensajeDetalle,
       };
     }
 

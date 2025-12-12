@@ -209,11 +209,24 @@ resources:
             AttributeType: S
           - AttributeName: SK
             AttributeType: S
+          - AttributeName: codigo_dispositivo
+            AttributeType: S
+          - AttributeName: codigo_seguridad
+            AttributeType: S
         KeySchema:
           - AttributeName: PK
             KeyType: HASH
           - AttributeName: SK
             KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: DispositivoCodigoIndex
+            KeySchema:
+              - AttributeName: codigo_dispositivo
+                KeyType: HASH
+              - AttributeName: codigo_seguridad
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
         StreamSpecification:
           StreamViewType: NEW_AND_OLD_IMAGES
         Tags:

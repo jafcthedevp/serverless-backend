@@ -12,7 +12,7 @@ const axios = require('axios');
 
 // Credenciales (actualizadas)
 const PHONE_NUMBER_ID = '934971743027376';
-const ACCESS_TOKEN = 'EAAT0ngu7fqsBQO2awT51Wzh5j03VcvCh8tbtRGjyjM54KIaZBZB8OAlU7fQc1f6LUsvga23FSnfczxp7ZAQgwG7TQ4VZC71JGJzTdOSZC37Ilr0DzKYAsLcfbgPaxbyMncy6fxwoE7AvnvbmOrL1N83yshnzpWbhQZAgHOSHBuCTJ6i2dtXgHZA7hH1ZBegdZA1osCcT37lMk4Fle0Jq0LXHf7dsZAz6qqb5N50PHa2jJ2OL9yjOeEsAdaZAUZAMqSBjryqDx8SdveRE7FaxnBE0S2t5DMsd3WQJaZA834CQZAfgZDZD';
+const ACCESS_TOKEN = 'EAAT0ngu7fqsBQDXovclsbY5KLvEYSmnA7qFjw4sMxH788fkZB2QnIPjpxZATAfZAUK6fU2erxo5hiV4yVzotXWAdSknwXPxEgAuUYVTa7JyRxKubZAZA5zA2BrboxbG5IYYbL2i4JeMYDBst8BFoa6xI5jtE3kgeuYh553ZBA3tHQoGjfUqRuZBewr2VBEZAS5dcrwZDZD';
 
 async function enviarMensaje(destinatario, mensaje) {
   const url = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
