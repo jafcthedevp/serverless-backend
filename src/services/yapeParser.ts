@@ -55,11 +55,27 @@ export class YapeParser {
    * Extrae el monto de la notificación
    * Busca patrones como: "S/100", "S/ 100.50", "S/1,500.00"
    */
-  private static extractMonto(texto: string): number | null {
+  static extractMonto(texto: string): number | null {
     const patterns = [
+      // Patrones con S/
       /S\/\s*([\d,]+\.?\d*)/i,
+      /S\/\.\s*([\d,]+\.?\d*)/i,
       /S\/\s*([\d,]+)/i,
+
+      // Patrones con "soles"
       /(\d+\.?\d*)\s*soles?/i,
+
+      // Patrones con PEN (código de moneda)
+      /PEN\s*([\d,]+\.?\d*)/i,
+
+      // Patrones para "Yapeaste" (puede tener formato diferente)
+      /yapeaste[^\d]*([\d,]+\.?\d*)/i,
+
+      // Patrón genérico: buscar número después de palabras clave
+      /(?:monto|total|importe)[:\s]*([\d,]+\.?\d*)/i,
+
+      // Patrón más flexible: cualquier número con 2 decimales cerca del inicio
+      /^[^\d]*([\d,]+\.\d{2})/m,
     ];
 
     for (const pattern of patterns) {
@@ -67,7 +83,7 @@ export class YapeParser {
       if (match) {
         const montoStr = match[1].replace(/,/g, '');
         const monto = parseFloat(montoStr);
-        if (!isNaN(monto) && monto > 0) {
+        if (!isNaN(monto) && monto > 0 && monto < 10000) { // Validar rango razonable
           return monto;
         }
       }
@@ -79,7 +95,7 @@ export class YapeParser {
   /**
    * Extrae el nombre del pagador
    */
-  private static extractNombrePagador(texto: string): string | null {
+  static extractNombrePagador(texto: string): string | null {
     // Buscar después de "Yapeaste!" o "Te yapearon" y antes de la fecha
     const patterns = [
       /(?:Yapeaste!|Te yapearon)\s*\n\s*S\/[\d,]+\.?\d*\s*\n\s*([^\n]+)/i,
@@ -100,19 +116,40 @@ export class YapeParser {
    * Extrae el código de seguridad
    * Busca patrones como: "5 0 2", "502", "217"
    */
-  private static extractCodigoSeguridad(texto: string): string | null {
+  static extractCodigoSeguridad(texto: string): string | null {
     const patterns = [
+      // Patrón original: "CÓDIGO DE SEGURIDAD" con dígitos separados
       /C[ÓO]DIGO\s+DE\s+SEGURIDAD\s*[\n:]*\s*(\d)\s*(\d)\s*(\d)/i,
+
+      // Patrón con más espacios/saltos de línea
+      /C[ÓO]DIGO\s+DE\s+SEGURIDAD[\s\n:]+(\d)[\s\n]+(\d)[\s\n]+(\d)/i,
+
+      // Patrón original: 3 dígitos juntos
       /C[ÓO]DIGO\s+DE\s+SEGURIDAD\s*[\n:]*\s*(\d{3})/i,
+
+      // Solo "SEGURIDAD" (más corto)
       /SEGURIDAD\s*[\n:]*\s*(\d)\s*(\d)\s*(\d)/i,
+      /SEGURIDAD[\s\n:]+(\d)[\s\n]+(\d)[\s\n]+(\d)/i,
+
+      // Versión más corta: "CODIGO SEGURIDAD" (sin "DE")
+      /C[ÓO]DIGO\s+SEGURIDAD\s*[\n:]*\s*(\d)\s*(\d)\s*(\d)/i,
+
+      // Patrón genérico: buscar 3 dígitos separados después de "seguridad"
+      /seguridad[^\d]*(\d)[^\d]+(\d)[^\d]+(\d)/i,
+
+      // Patrón muy flexible: buscar secuencia de exactamente 3 dígitos separados
+      // cerca de la palabra "seguridad" o "código"
+      /(?:seguridad|c[oó]digo)[^\d]{1,30}(\d)[^\d]{1,5}(\d)[^\d]{1,5}(\d)/i,
     ];
 
     for (const pattern of patterns) {
       const match = texto.match(pattern);
       if (match) {
         if (match[3]) {
+          // Tres grupos capturados (dígitos separados)
           return match[1] + match[2] + match[3];
-        } else if (match[1]) {
+        } else if (match[1] && match[1].length === 3) {
+          // Un grupo con 3 dígitos juntos
           return match[1];
         }
       }

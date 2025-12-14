@@ -9,59 +9,147 @@ import { MatchingService } from '../services/matching';
  */
 export async function validarVoucher(voucher: VoucherDatos): Promise<ResultadoValidacion> {
   try {
-    // 1. Buscar notificación por código dispositivo + código seguridad
-    const notificacionesCandidatas = await DynamoDBService.queryIndex(
+    // Normalizar datos del voucher para matching
+    const codigoNormalizado = String(voucher.codigoSeguridad).trim();
+    const montoNormalizado = Number(voucher.monto);
+
+    console.log('🔍 Iniciando validación con:', {
+      codigoSeguridad: codigoNormalizado,
+      codigoTipo: typeof codigoNormalizado,
+      monto: montoNormalizado,
+      montoTipo: typeof montoNormalizado,
+      numeroOperacion: voucher.numeroOperacion,
+    });
+
+    // 1. PRIMERO: Verificar si ya fue validado (anti-duplicación)
+    // Nota: VENTAS usa PK+SK, así que usamos query en vez de get
+    console.log('🔍 Verificando duplicados para numero_operacion:', voucher.numeroOperacion);
+
+    const ventasExistentes = await DynamoDBService.query(
+      TABLES.VENTAS,
+      'PK = :pk',
+      { ':pk': `VENTA#${voucher.numeroOperacion}` }
+    ) as VentaValidada[];
+
+    console.log(`📊 Encontradas ${ventasExistentes.length} ventas existentes con este numero_operacion`);
+
+    if (ventasExistentes.length > 0) {
+      console.log('⚠️ Venta duplicada encontrada:', {
+        numero_operacion: ventasExistentes[0].numero_operacion,
+        vendedor: ventasExistentes[0].vendedor_whatsapp,
+        fecha_validacion: ventasExistentes[0].fecha_hora_validacion,
+      });
+
+      return {
+        valido: false,
+        razon: 'OPERACION_DUPLICADA',
+        mensaje: MatchingService.generarMensajeDuplicado(
+          voucher.numeroOperacion,
+          ventasExistentes[0].vendedor_whatsapp,
+          ventasExistentes[0].fecha_hora_validacion
+        ),
+      };
+    }
+
+    // 2. Buscar notificaciones por código de seguridad y monto (matching simple)
+    const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    // Usar scan con filtro para buscar por codigo_seguridad + monto
+    const todasNotificaciones = await DynamoDBService.scan(
       TABLES.NOTIFICACIONES,
-      'DispositivoCodigoIndex',
-      'codigo_dispositivo = :dispositivo AND codigo_seguridad = :codigo',
       {
-        ':dispositivo': voucher.codigoServicio,
-        ':codigo': voucher.codigoSeguridad,
+        FilterExpression: 'codigo_seguridad = :codigo AND monto = :monto AND estado = :estado AND created_at > :fecha',
+        ExpressionAttributeValues: {
+          ':codigo': codigoNormalizado,
+          ':monto': montoNormalizado,
+          ':estado': 'PENDIENTE_VALIDACION',
+          ':fecha': hace24h,
+        }
       }
     ) as NotificacionYape[];
 
-    console.log(`Encontradas ${notificacionesCandidatas.length} notificaciones con dispositivo=${voucher.codigoServicio} y código=${voucher.codigoSeguridad}`);
+    console.log(`📊 Encontradas ${todasNotificaciones.length} notificaciones con código=${codigoNormalizado} y monto=S/${montoNormalizado}`);
 
-    // 2. Filtrar en memoria por nombre EXACTO, monto EXACTO y estado PENDIENTE
-    const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    if (todasNotificaciones.length > 0) {
+      console.log('Primera notificación encontrada:', {
+        PK: todasNotificaciones[0].PK,
+        SK: todasNotificaciones[0].SK,
+        monto: todasNotificaciones[0].monto,
+        codigo_seguridad: todasNotificaciones[0].codigo_seguridad,
+      });
+    }
 
-    const notificacion = notificacionesCandidatas.find(n =>
-      n.nombre_pagador === voucher.nombreCliente &&  // Nombre EXACTO
-      n.monto === voucher.monto &&                    // Monto EXACTO
-      n.estado === 'PENDIENTE_VALIDACION' &&          // Solo pendientes
-      n.created_at > hace24h                          // Últimas 24 horas
-    );
+    // 2. Tomar la primera notificación que coincida
+    const notificacion = todasNotificaciones.length > 0 ? todasNotificaciones[0] : undefined;
 
     if (!notificacion) {
-      // Buscar si hay notificaciones similares para dar mejor feedback
-      const notifConMonto = notificacionesCandidatas.find(n => n.monto === voucher.monto);
-      const notifConNombre = notificacionesCandidatas.find(n => n.nombre_pagador === voucher.nombreCliente);
+      // Buscar notificaciones similares para dar mejor feedback
+      const notifConCodigo = await DynamoDBService.scan(
+        TABLES.NOTIFICACIONES,
+        {
+          FilterExpression: 'codigo_seguridad = :codigo AND estado = :estado AND created_at > :fecha',
+          ExpressionAttributeValues: {
+            ':codigo': codigoNormalizado,
+            ':estado': 'PENDIENTE_VALIDACION',
+            ':fecha': hace24h,
+          }
+        }
+      ) as NotificacionYape[];
 
-      let mensajeDetalle = '⚠️ No encontramos un pago que coincida exactamente.\n\n';
+      const notifConMonto = await DynamoDBService.scan(
+        TABLES.NOTIFICACIONES,
+        {
+          FilterExpression: 'monto = :monto AND estado = :estado AND created_at > :fecha',
+          ExpressionAttributeValues: {
+            ':monto': montoNormalizado,
+            ':estado': 'PENDIENTE_VALIDACION',
+            ':fecha': hace24h,
+          }
+        }
+      ) as NotificacionYape[];
 
-      if (notifConMonto && !notifConNombre) {
-        mensajeDetalle += `✅ Encontramos un pago de S/${voucher.monto}\n` +
-          `❌ Pero el nombre no coincide exactamente\n\n` +
-          `En el sistema: "${notifConMonto.nombre_pagador}"\n` +
-          `Tú enviaste: "${voucher.nombreCliente}"\n\n` +
-          `💡 Copia el nombre EXACTAMENTE como aparece en Yape (con espacios, mayúsculas, puntos, etc.)`;
-      } else if (notifConNombre && !notifConMonto) {
-        mensajeDetalle += `✅ Encontramos un pago de "${voucher.nombreCliente}"\n` +
+      console.log('❌ No se encontró match exacto. Detalles:', {
+        notifConCodigo: notifConCodigo.length,
+        notifConMonto: notifConMonto.length,
+        codigoBuscado: codigoNormalizado,
+        montoBuscado: montoNormalizado,
+      });
+
+      // Log de notificaciones encontradas para debugging
+      if (notifConCodigo.length > 0) {
+        console.log('Notificaciones con mismo código:', notifConCodigo.map(n => ({
+          codigo: n.codigo_seguridad,
+          monto: n.monto,
+          created_at: n.created_at,
+        })));
+      }
+      if (notifConMonto.length > 0) {
+        console.log('Notificaciones con mismo monto:', notifConMonto.map(n => ({
+          codigo: n.codigo_seguridad,
+          monto: n.monto,
+          created_at: n.created_at,
+        })));
+      }
+
+      let mensajeDetalle = '⚠️ No encontramos un pago que coincida.\n\n';
+
+      if (notifConCodigo.length > 0 && notifConMonto.length === 0) {
+        mensajeDetalle += `✅ Encontramos un pago con código de seguridad ${voucher.codigoSeguridad}\n` +
           `❌ Pero el monto no coincide\n\n` +
-          `En el sistema: S/${notifConNombre.monto}\n` +
-          `Tú enviaste: S/${voucher.monto}`;
-      } else if (notificacionesCandidatas.length > 0) {
-        mensajeDetalle += `Encontramos ${notificacionesCandidatas.length} pago(s) con el mismo código de seguridad,\n` +
-          `pero ninguno coincide en nombre Y monto.\n\n` +
-          `Verifica:\n` +
-          `• El nombre sea EXACTAMENTE igual a Yape\n` +
-          `• El monto sea correcto\n` +
-          `• Que sea un pago de las últimas 24 horas`;
+          `En el sistema: S/${notifConCodigo[0].monto}\n` +
+          `Tú enviaste: S/${voucher.monto}\n\n` +
+          `💡 Verifica que el monto sea correcto`;
+      } else if (notifConMonto.length > 0 && notifConCodigo.length === 0) {
+        mensajeDetalle += `✅ Encontramos un pago de S/${voucher.monto}\n` +
+          `❌ Pero el código de seguridad no coincide\n\n` +
+          `Códigos en el sistema: ${notifConMonto.map(n => n.codigo_seguridad).join(', ')}\n` +
+          `Tú enviaste: ${voucher.codigoSeguridad}\n\n` +
+          `💡 Verifica que el código de seguridad sea correcto`;
       } else {
         mensajeDetalle = '⚠️ No encontramos el pago en nuestro sistema.\n\n' +
           'Verifica:\n' +
-          `• El código del servicio (${voucher.codigoServicio})\n` +
           `• El código de seguridad (${voucher.codigoSeguridad})\n` +
+          `• El monto (S/${voucher.monto})\n` +
           '• Que el pago se haya realizado a uno de nuestros números\n' +
           '• Que hayan pasado al menos 30 segundos desde el pago';
       }
@@ -73,24 +161,7 @@ export async function validarVoucher(voucher: VoucherDatos): Promise<ResultadoVa
       };
     }
 
-    // 2. Verificar si ya fue validado (anti-duplicación)
-    const ventaExistente = await DynamoDBService.get(TABLES.VENTAS, {
-      PK: `VENTA#${voucher.numeroOperacion}`,
-    }) as VentaValidada | undefined;
-
-    if (ventaExistente) {
-      return {
-        valido: false,
-        razon: 'OPERACION_DUPLICADA',
-        mensaje: MatchingService.generarMensajeDuplicado(
-          voucher.numeroOperacion,
-          ventaExistente.vendedor_whatsapp,
-          ventaExistente.fecha_hora_validacion
-        ),
-      };
-    }
-
-    // 3. Realizar matching de 5 checks
+    // 3. Realizar matching simple (codigo_seguridad + monto)
     const resultadoMatching = MatchingService.validarVenta(voucher, notificacion);
 
     // 4. Si es válido, registrar la venta
@@ -122,54 +193,25 @@ export async function validarVoucher(voucher: VoucherDatos): Promise<ResultadoVa
       // Guardar venta validada
       await DynamoDBService.put(TABLES.VENTAS, venta);
 
-      // Actualizar estado de la notificación
+      // Actualizar estado de la notificación a VALIDADO
+      console.log('🔄 Actualizando notificación a VALIDADO:', {
+        table: TABLES.NOTIFICACIONES,
+        key: { PK: notificacion.PK, SK: notificacion.SK },
+        PK_type: typeof notificacion.PK,
+        SK_type: typeof notificacion.SK,
+      });
+
       await DynamoDBService.update(
         TABLES.NOTIFICACIONES,
-        { PK: `NOTIF#${voucher.numeroOperacion}`, SK: notificacion.SK },
+        { PK: notificacion.PK, SK: notificacion.SK },
         'SET estado = :estado',
         { ':estado': 'VALIDADO' }
       );
 
       console.log('Venta validada y registrada:', venta);
-    } else if (resultadoMatching.razon === 'MATCH_INSUFICIENTE') {
-      // Registrar para revisión manual
-      const timestamp = new Date().toISOString();
-
-      const venta: VentaValidada = {
-        PK: `VENTA#${voucher.numeroOperacion}`,
-        SK: timestamp,
-        numero_operacion: voucher.numeroOperacion,
-        cliente_nombre: voucher.nombreCliente,
-        cliente_telefono: voucher.telefonoCliente,
-        cliente_ubicacion: voucher.ubicacion,
-        monto: voucher.monto,
-        codigo_seguridad: voucher.codigoSeguridad,
-        fecha_hora_pago: notificacion.fecha_hora || timestamp,
-        codigo_servicio_voucher: voucher.codigoServicio,
-        codigo_servicio_notificacion: notificacion.codigo_dispositivo,
-        vendedor_whatsapp: voucher.vendedorWhatsApp,
-        match_exitoso: false,
-        confianza_match: resultadoMatching.confianza || 0,
-        campos_coincidentes: resultadoMatching.campos_coincidentes || [],
-        estado: 'REVISION_MANUAL',
-        validado_por: 'SISTEMA_AUTOMATICO',
-        fecha_hora_validacion: timestamp,
-        voucher_s3_key: voucher.voucherUrl,
-      };
-
-      await DynamoDBService.put(TABLES.VENTAS, venta);
-
-      // Actualizar estado de la notificación
-      await DynamoDBService.update(
-        TABLES.NOTIFICACIONES,
-        { PK: `NOTIF#${voucher.numeroOperacion}`, SK: notificacion.SK },
-        'SET estado = :estado',
-        { ':estado': 'REVISION_MANUAL' }
-      );
-
-      console.log('Venta marcada para revisión manual:', venta);
     }
 
+    // Retornar resultado (ya sea válido o no válido)
     return resultadoMatching;
   } catch (error) {
     console.error('Error validando voucher:', error);

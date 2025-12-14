@@ -30,7 +30,8 @@
       "Bash(node scripts/enviar-mensaje-whatsapp.js:*)",
       "Bash(aws logs describe-log-streams:*)",
       "Bash(MSYS_NO_PATHCONV=1 aws logs tail:*)",
-      "Bash(MSYS_NO_PATHCONV=1 aws ssm get-parameters:*)"
+      "Bash(MSYS_NO_PATHCONV=1 aws ssm get-parameters:*)",
+      "Bash(MSYS_NO_PATHCONV=1 aws dynamodb scan:*)"
     ],
     "deny": [],
     "ask": []

@@ -229,14 +229,45 @@ async function procesarMensaje(message: WhatsAppMessage): Promise<void> {
     }) as SesionVendedor | undefined;
 
     if (message.type === 'image') {
+      console.log(`📸 Imagen recibida de ${from}, ID: ${message.image?.id}`);
       // PASO 1: Vendedor envía IMAGEN del voucher
+      // Nota: NO eliminamos la sesión aquí - procesarImagen() la reemplazará si tiene éxito
+      console.log(`⏳ Iniciando procesamiento de imagen para ${from}`);
       await procesarImagen(message, from);
+      console.log(`✅ Procesamiento de imagen completado para ${from}`);
     } else if (message.type === 'text') {
+      const textoMensaje = (message.text?.body || '').toLowerCase().trim();
+
+      // Comando para cancelar sesión
+      if (textoMensaje === 'cancelar' || textoMensaje === 'reiniciar') {
+        if (sesion) {
+          await DynamoDBService.delete(TABLES.SESIONES, { PK: `SESION#${from}` });
+          await whatsappService.enviarMensaje(
+            from,
+            '🔄 Sesión cancelada.\n\nPuedes enviar una nueva imagen del voucher para comenzar.'
+          );
+          console.log(`🔄 Sesión cancelada manualmente por ${from}`);
+        } else {
+          await whatsappService.enviarMensaje(
+            from,
+            'No hay ninguna sesión activa.\n\nEnvía una imagen del voucher para comenzar.'
+          );
+        }
+        return;
+      }
+
       if (sesion?.estado === 'ESPERANDO_DATOS_TEXTO') {
         // PASO 2: Vendedor envía TEXTO con datos adicionales
         await procesarTexto(message, from, sesion);
+      } else if (sesion?.estado === 'ESPERANDO_IMAGEN') {
+        // Usuario ya tiene sesión pero aún no envió imagen
+        await whatsappService.enviarMensaje(
+          from,
+          '⚠️ Aún necesito la imagen del voucher.\n\n' +
+          '📸 Por favor envía la imagen del voucher de Yape para continuar.'
+        );
       } else {
-        // Mensaje de ayuda
+        // Sin sesión - esto ya no debería pasar porque creamos sesión arriba
         await whatsappService.enviarMensaje(from, WhatsAppService.MENSAJES.BIENVENIDA);
       }
     } else {
@@ -264,35 +295,62 @@ async function procesarMensaje(message: WhatsAppMessage): Promise<void> {
  */
 async function procesarImagen(message: WhatsAppMessage, from: string): Promise<void> {
   try {
+    console.log(`[procesarImagen] Iniciando para ${from}`);
+
     // Notificar que estamos procesando
     await whatsappService.enviarMensaje(from, WhatsAppService.MENSAJES.PROCESANDO);
+    console.log(`[procesarImagen] Mensaje de procesando enviado`);
 
     // Descargar imagen desde WhatsApp
+    console.log(`[procesarImagen] Descargando imagen ID: ${message.image!.id}`);
     const imageBuffer = await whatsappService.descargarMedia(message.image!.id);
+    console.log(`[procesarImagen] Imagen descargada, tamaño: ${imageBuffer.length} bytes`);
 
     // Guardar en S3
     const s3Key = S3Service.generarKeyVoucher(from, 'jpg');
+    console.log(`[procesarImagen] Guardando en S3 con key: ${s3Key}`);
     await S3Service.subirArchivo(S3_BUCKET, s3Key, imageBuffer, 'image/jpeg');
+    console.log(`[procesarImagen] Imagen guardada en S3`);
 
     // Procesar con Textract (OCR)
+    console.log(`[procesarImagen] Iniciando Textract...`);
     const { texto, confianza } = await TextractService.extraerTextoConConfianza(
       S3_BUCKET,
       s3Key
     );
 
-    console.log(`Texto extraído (confianza: ${confianza}%):`, texto);
+    console.log(`[procesarImagen] Texto extraído (confianza: ${confianza}%):`, texto);
 
     // Parsear datos de la imagen
     const datosImagen = YapeParser.parseVoucherTextract(texto);
 
+    console.log('[procesarImagen] Datos parseados:', {
+      monto: datosImagen.monto,
+      codigoSeguridad: datosImagen.codigoSeguridad,
+      numeroOperacion: datosImagen.numeroOperacion,
+      fechaHora: datosImagen.fechaHora,
+    });
+
     // Validar que se extrajo información crítica
     if (!datosImagen.numeroOperacion || !datosImagen.monto || !datosImagen.codigoSeguridad) {
-      console.log('Faltan datos críticos en la imagen:', {
+      console.log('❌ Faltan datos críticos en la imagen:', {
         tieneNumeroOperacion: !!datosImagen.numeroOperacion,
         tieneMonto: !!datosImagen.monto,
         tieneCodigoSeguridad: !!datosImagen.codigoSeguridad,
       });
-      await whatsappService.enviarMensaje(from, WhatsAppService.MENSAJES.ERROR_IMAGEN);
+
+      // Mensaje mejorado con detalles de lo que falta
+      let mensajeError = '❌ No pude leer todos los datos del voucher.\n\n';
+      mensajeError += '📋 Estado de lectura:\n';
+      mensajeError += datosImagen.monto ? `✅ Monto: S/${datosImagen.monto}\n` : `❌ Monto: No encontrado\n`;
+      mensajeError += datosImagen.codigoSeguridad ? `✅ Código: ${datosImagen.codigoSeguridad}\n` : `❌ Código de seguridad: No encontrado\n`;
+      mensajeError += datosImagen.numeroOperacion ? `✅ Operación: ${datosImagen.numeroOperacion}\n` : `❌ Nro. operación: No encontrado\n`;
+      mensajeError += '\n💡 Intenta:\n';
+      mensajeError += '• Enviar una captura más clara\n';
+      mensajeError += '• Asegurarte que todo el texto sea legible\n';
+      mensajeError += '• No editar o comprimir la imagen';
+
+      await whatsappService.enviarMensaje(from, mensajeError);
       return;
     }
 
@@ -328,18 +386,18 @@ async function procesarTexto(
   sesion: SesionVendedor
 ): Promise<void> {
   try {
-    const texto = message.text!.body;
+    const texto = message.text!.body.trim();
     const lineas = texto.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
 
-    // Validar formato (al menos 2 líneas: nombre y código)
-    if (lineas.length < 2) {
+    // Validar que al menos tenga el nombre
+    if (lineas.length === 0 || !lineas[0]) {
       await whatsappService.enviarMensaje(from, WhatsAppService.MENSAJES.ERROR_FORMATO);
       return;
     }
 
     // Parsear datos del texto
     const nombreCliente = lineas[0];
-    const codigoServicio = lineas[1].toUpperCase();
+    const telefonoCliente = lineas.length > 1 ? lineas[1] : undefined; // Opcional
 
     // Crear voucher completo combinando datos de IMAGEN + TEXTO
     const voucherCompleto: VoucherDatos = {
@@ -348,30 +406,51 @@ async function procesarTexto(
       codigoSeguridad: sesion.datosImagen!.codigoSeguridad!,
       numeroOperacion: sesion.datosImagen!.numeroOperacion!,
       fechaHora: sesion.datosImagen!.fechaHora!,
-      // Del TEXTO (vendedor)
+      // Del TEXTO (vendedor) - Solo para registro del cliente
       nombreCliente,
-      codigoServicio,
-      telefonoCliente: lineas[2], // Opcional
-      ubicacion: lineas[3], // Opcional
+      telefonoCliente,
+      codigoServicio: 'N/A', // No se usa para matching
       // Metadata
       vendedorWhatsApp: from,
       voucherUrl: sesion.s3Key,
     };
 
+    console.log('📦 Voucher creado para validación:', {
+      numeroOperacion: voucherCompleto.numeroOperacion,
+      monto: voucherCompleto.monto,
+      codigoSeguridad: voucherCompleto.codigoSeguridad,
+      nombreCliente: voucherCompleto.nombreCliente,
+    });
+
     // Validar con matching (importamos el handler)
     const { validarVoucher } = await import('./validarConMatch');
     const resultado = await validarVoucher(voucherCompleto);
 
-    // Enviar respuesta al vendedor
-    await whatsappService.enviarMensaje(from, resultado.mensaje);
+    // Si la validación fue exitosa, limpiar sesión
+    if (resultado.valido) {
+      // Enviar respuesta de éxito
+      await whatsappService.enviarMensaje(from, resultado.mensaje);
 
-    // Limpiar sesión
-    await DynamoDBService.delete(TABLES.SESIONES, { PK: `SESION#${from}` });
+      // Limpiar sesión (validación exitosa)
+      await DynamoDBService.delete(TABLES.SESIONES, { PK: `SESION#${from}` });
+
+      console.log(`✅ Sesión eliminada para ${from} - Validación exitosa`);
+    } else {
+      // Si falló la validación, mantener la sesión para que pueda reintentar
+      const mensajeConReintento = resultado.mensaje +
+        '\n\n💡 Puedes corregir los datos y enviarlos nuevamente sin volver a enviar la imagen.';
+
+      await whatsappService.enviarMensaje(from, mensajeConReintento);
+
+      console.log(`⚠️ Sesión mantenida para ${from} - Puede reintentar (TTL: ${sesion.ttl})`);
+    }
   } catch (error) {
     console.error('Error procesando texto:', error);
+
+    // En caso de error técnico, mantener la sesión también
     await whatsappService.enviarMensaje(
       from,
-      '❌ Ocurrió un error validando el voucher. Por favor intenta nuevamente.'
+      '❌ Ocurrió un error validando el voucher.\n\n💡 Por favor intenta enviar los datos nuevamente.'
     );
   }
 }

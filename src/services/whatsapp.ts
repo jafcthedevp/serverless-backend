@@ -129,40 +129,36 @@ export class WhatsAppService {
 
 Para validar un pago, envíame:
 1️⃣ La imagen del voucher de Yape
-2️⃣ El nombre EXACTO del cliente (como aparece en Yape)
-3️⃣ El código del servicio (Ej: TK6-600, L1-000)
+2️⃣ Los datos del cliente
 
-⚠️ *IMPORTANTE*: El nombre debe ser EXACTAMENTE igual al de Yape
-   (respeta mayúsculas, espacios, puntos, etc.)`,
+📌 *Comandos útiles:*
+• Escribe "cancelar" o "reiniciar" para empezar de nuevo`,
 
     IMAGEN_RECIBIDA: `✅ Imagen recibida correctamente.
 
-Ahora envíame los siguientes datos en este formato:
+Ahora envíame los datos del cliente:
 
-📝 *IMPORTANTE*: El nombre debe ser EXACTAMENTE como aparece en Yape
-   (con espacios, mayúsculas, minúsculas, puntos, etc.)
-
-Formato:
-_Nombre completo (EXACTO)_
-_Código del servicio_
+*Línea 1:* Nombre completo
+*Línea 2:* Teléfono (opcional)
 
 Ejemplo:
 Jesus F. Anthony C.
-TK6-600`,
+987654321
+
+💡 Si necesitas empezar de nuevo, escribe "cancelar"`,
 
     ERROR_FORMATO: `❌ Formato incorrecto.
 
-Por favor envía los datos en este formato:
+Por favor envía los datos del cliente:
 
-📝 *RECUERDA*: Copia el nombre EXACTAMENTE como aparece en Yape
-
-Formato:
-_Nombre completo (EXACTO)_
-_Código del servicio_
+*Línea 1:* Nombre completo
+*Línea 2:* Teléfono (opcional)
 
 Ejemplo:
 Jesus F. Anthony C.
-TK6-600`,
+987654321
+
+💡 Escribe "cancelar" si quieres empezar de nuevo`,
 
     ERROR_IMAGEN: `❌ No pude procesar la imagen.
 

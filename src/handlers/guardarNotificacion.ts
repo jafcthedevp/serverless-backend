@@ -91,6 +91,23 @@ export const handler = async (
     const requiereRevisionManual = PagoDetector.requiereRevisionManual(tipoPago);
     const estadoInicial = requiereRevisionManual ? 'REVISION_MANUAL' : 'PENDIENTE_VALIDACION';
 
+    // Intentar parsear manualmente si el parser principal falla
+    let montoParsed = notificacionParseada?.monto;
+    let codigoSeguridadParsed = notificacionParseada?.codigo_seguridad;
+    let nombrePagadorParsed = notificacionParseada?.nombre_pagador;
+
+    // Si el parser falló, intentar extraer al menos monto y código de seguridad
+    if (!notificacionParseada && tipoPago === 'YAPE') {
+      montoParsed = YapeParser.extractMonto(payload.texto) || undefined;
+      codigoSeguridadParsed = YapeParser.extractCodigoSeguridad(payload.texto) || undefined;
+      nombrePagadorParsed = YapeParser.extractNombrePagador(payload.texto) || undefined;
+      logger.info('Parser parcial ejecutado', {
+        monto: montoParsed,
+        codigo: codigoSeguridadParsed,
+        nombre: nombrePagadorParsed,
+      });
+    }
+
     // Si no se pudo parsear, generar un ID temporal basado en timestamp
     const numeroOperacion = notificacionParseada?.numero_operacion ||
                            `TEMP-${Date.now()}-${payload.codigo_dispositivo}`;
@@ -101,9 +118,9 @@ export const handler = async (
       SK: timestamp,
       tipo_pago: tipoPago,
       texto_raw: payload.texto,
-      monto: notificacionParseada?.monto,
-      nombre_pagador: notificacionParseada?.nombre_pagador,
-      codigo_seguridad: notificacionParseada?.codigo_seguridad,
+      monto: montoParsed,
+      nombre_pagador: nombrePagadorParsed,
+      codigo_seguridad: codigoSeguridadParsed,
       numero_operacion: notificacionParseada?.numero_operacion,
       fecha_hora: notificacionParseada?.fecha_hora,
       codigo_dispositivo: payload.codigo_dispositivo,
